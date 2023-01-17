@@ -3,20 +3,26 @@ use select_loop::select_loop;
 
 #[tokio::main]
 async fn main() {
-    let counter = futures::stream::iter(100..).map(|x| x.to_string());
-    let counter2 = futures::stream::iter(0..);
-    let mut storage = vec![];
+    let string_counter = futures::stream::iter(100..).map(|x| x.to_string());
+    let num_counter = futures::stream::iter(0..);
+    let ready = futures::future::ready(42);
+    let never = futures::future::pending::<u32>();
+
+    // statically known that all branches set a value
+    let mut latest;
 
     select_loop! {
-        counter => |number| storage.push(number),
-        counter2 => |number| {
-            storage.push(number.to_string());
+        S string_counter => |number| latest = number,
+        S num_counter => |number| {
+            latest = number.to_string();
 
             if number == 20 {
                 break;
             }
         },
-    };
+        F ready => |number| latest = number.to_string(),
+        F never => |number| latest = number.to_string(),
 
-    println!("{storage:#?}");
+        @after => println!("{latest}"),
+    };
 }
