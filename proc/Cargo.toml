@@ -1,0 +1,24 @@
+[package]
+name = "select-loop-proc"
+version = "0.1.0"
+edition = "2021"
+authors = ["nanocryk"]
+
+[lib]
+proc-macro = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+case = "1.0"
+proc-macro2 = "1.0"
+quote = "1.0"
+sha3 = "0.10"
+syn = { version = "1.0", features = [ "extra-traits", "fold", "full", "visit" ] }
+proc-macro-crate = "1.2.1"
+
+[dev-dependencies]
+macrotest = "1.0.9"
+trybuild = "1.0"
+futures = "0.3"
+tokio = { version = "1.24.1", features = ["full"] }
