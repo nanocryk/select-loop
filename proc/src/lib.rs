@@ -31,6 +31,7 @@ mod kw {
     syn::custom_keyword!(S);
     syn::custom_keyword!(before);
     syn::custom_keyword!(after);
+    syn::custom_keyword!(exhausted);
 }
 
 #[derive(PartialEq, Eq)]
@@ -55,6 +56,7 @@ struct HookBranch {
 enum HookKind {
     Before,
     After,
+    Exhausted,
 }
 
 enum Branch {
@@ -82,6 +84,9 @@ impl Parse for Branch {
             } else if lookahead.peek(kw::after) {
                 input.parse::<kw::after>()?;
                 HookKind::After
+            } else if lookahead.peek(kw::exhausted) {
+                input.parse::<kw::exhausted>()?;
+                HookKind::Exhausted
             } else {
                 return Err(lookahead.error());
             };
@@ -131,15 +136,20 @@ impl Parse for Select {
 
 impl Select {
     fn split(self) -> SelectSplit {
-        let mut split = SelectSplit { before: vec![], after: vec![], sourced: vec![] };
+        let mut split = SelectSplit {
+            before: vec![],
+            after: vec![],
+            exhausted: vec![],
+            sourced: vec![]
+        };
 
         for branch in self.branches.into_iter() {
             match branch {
                 Branch::Hook(h) =>{
-                    if h.kind == HookKind::Before {
-                        split.before.push(h)
-                    } else {
-                        split.after.push(h)
+                    match &h.kind {
+                        HookKind::Before =>  split.before.push(h),
+                        HookKind::After =>  split.after.push(h),
+                        HookKind::Exhausted =>  split.exhausted.push(h),
                     }
                 },
                 Branch::Sourced(s) => split.sourced.push(s),
@@ -153,6 +163,7 @@ impl Select {
 struct SelectSplit {
     before: Vec<HookBranch>,
     after: Vec<HookBranch>,
+    exhausted: Vec<HookBranch>,
     sourced: Vec<SourcedBranch>
 }
 
@@ -164,6 +175,7 @@ pub fn select_loop(input: TokenStream) -> TokenStream {
 
     let before = select.before.iter().map(|branch| &branch.body);
     let after = select.after.iter().map(|branch| &branch.body);
+    let exhausted = select.exhausted.iter().map(|branch| &branch.body);
 
     let branch_variant_type: Vec<_> = select
         .sourced
@@ -236,11 +248,15 @@ pub fn select_loop(input: TokenStream) -> TokenStream {
 
         #(#branch_spawn_source_task)*
 
-        loop {
+        // We drop the original sender, such that if all streams are exhausted
+        // there will be no senders left which will notify the receiver.
+        core::mem::drop(sender);
+
+        'select_loop: loop {
             #({#before})*
 
             let Some(message) = _crate::__private::futures::StreamExt::next(&mut receiver).await else {
-                break;
+                break {#( {#exhausted} );*};
             };
 
             match message {
