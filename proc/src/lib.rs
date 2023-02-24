@@ -9,7 +9,7 @@ use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    Expr, Ident, Token, spanned::Spanned,
+    Expr, Ident, Token, spanned::Spanned, Pat,
 };
 
 fn import() -> impl ToTokens {
@@ -43,7 +43,7 @@ enum SourceKind {
 struct SourcedBranch {
     kind: SourceKind,
     source: Expr,
-    item: Ident,
+    item: Pat,
     body: Expr,
 }
 
@@ -126,7 +126,7 @@ impl Parse for Branch {
         input.parse::<Token![=>]>()?;
 
         input.parse::<Token![|]>()?;
-        let item: Ident = input.parse()?;
+        let item: Pat = input.parse()?;
         input.parse::<Token![|]>()?;
 
         let body: Expr = input.parse()?;
@@ -267,13 +267,16 @@ pub fn select_loop(input: TokenStream) -> TokenStream {
         core::mem::drop(sender);
 
         'select_loop: loop {
-            #({#before})*
-
-            let Some(message) = _crate::__private::futures::StreamExt::next(&mut receiver).await else {
+            let Some(__message) = _crate::__private::futures::StreamExt::next(&mut receiver).await else {
                 break {#( {#exhausted} );*};
             };
 
-            match message {
+            {
+                let __message = (); // prevent messing with the message.
+                #({#before})*
+            }
+
+            match __message {
                 #(
                     __Message::#branch_variant_name(#branch_variant_item) => #branch_body
                 ),*
