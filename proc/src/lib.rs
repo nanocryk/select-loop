@@ -18,10 +18,10 @@ fn import() -> impl ToTokens {
     };
 
     match found_crate {
-        FoundCrate::Itself => quote!( use select_loop as _crate; ),
+        FoundCrate::Itself => quote!( use select_loop as __crate; ),
         FoundCrate::Name(name) => {
             let ident = Ident::new(&name, Span::call_site());
-            quote!( use #ident as _crate; )
+            quote!( use #ident as __crate; )
         }
     }
 }
@@ -209,7 +209,19 @@ pub fn select_loop(input: TokenStream) -> TokenStream {
         .sourced
         .iter()
         .map(|branch| &branch.item)
+        .collect();
 
+    let branch_variant_source: Vec<_> = select
+        .sourced
+        .iter()
+        .map(|branch| &branch.source)
+        .collect();
+
+    let branch_variant_safe_source: Vec<_> = select
+        .sourced
+        .iter()
+        .enumerate()
+        .map(|(i, _branch)| Ident::new(&format!("__source{i}"), Span::call_site()))
         .collect();
 
     let branch_body = select
@@ -218,30 +230,28 @@ pub fn select_loop(input: TokenStream) -> TokenStream {
         .map(|branch| &branch.body);
 
     let branch_spawn_source_task =  select.sourced.iter().enumerate().map(|(i, branch)| {
+        let branch_source = Ident::new(&format!("__source{i}"), Span::call_site());
+        
         let convertion = if branch.kind == SourceKind::Future {
-            Some(quote_spanned!(branch.source.span()=>
-                let source = _crate::__private::futures::FutureExt::into_stream(source);
-            ))
+            quote_spanned!(branch.source.span()=>
+                let mut source = __crate::__private::futures::FutureExt::into_stream(#branch_source);
+            )
         } else {
-            None
+            quote_spanned!(branch.source.span()=>
+                let mut source = #branch_source;
+            )
         };
 
-        let branch_source = &branch.source;
         let branch_variant_name = Ident::new(&format!("M{i}"), Span::call_site());
 
         quote_spanned!(branch.source.span()=>
             let _abort_on_drop = {
-                let mut sender = sender.clone();
-                let source = #branch_source;
-
+                let mut sender = __sender.clone();            
                 #convertion
+                __crate::__private::AbortOnDrop::new(async move {
+                    use __crate::__private::futures::{StreamExt, SinkExt};
 
-                let mut stream = source;
-
-                _crate::__private::AbortOnDrop::new(async move {
-                    use _crate::__private::futures::{StreamExt, SinkExt};
-
-                    while let Some(item) = stream.next().await {
+                    while let Some(item) = source.next().await {
                         if sender.send(__Message::#branch_variant_name(item)).await.is_err() {
                             return;
                         }
@@ -258,21 +268,27 @@ pub fn select_loop(input: TokenStream) -> TokenStream {
             #( #branch_variant_name (#branch_variant_type) ),*
         }
 
-        let (sender, mut receiver) = _crate::__private::futures::channel::mpsc::channel(0);
+        // rename sources to avoid name clashes
+        let (#( #branch_variant_safe_source, )*) = (#( #branch_variant_source, )*);
+
+        let (__sender, mut __receiver) = __crate::__private::futures::channel::mpsc::channel(0);
 
         #(#branch_spawn_source_task)*
 
         // We drop the original sender, such that if all streams are exhausted
         // there will be no senders left which will notify the receiver.
-        core::mem::drop(sender);
+        core::mem::drop(__sender);
 
         'select_loop: loop {
-            let Some(__message) = _crate::__private::futures::StreamExt::next(&mut receiver).await else {
+            let Some(__message) = __crate::__private::futures::StreamExt::next(&mut __receiver).await else {
                 break {#( {#exhausted} );*};
             };
 
             {
-                let __message = (); // prevent messing with the message.
+                // shadow internal variables
+                let __sender = ();
+                let __receiver = ();
+                let __message = (); 
                 #({#before})*
             }
 
