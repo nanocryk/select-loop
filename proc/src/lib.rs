@@ -74,7 +74,7 @@ impl Parse for Branch {
             input.parse::<kw::S>()?;
             SourceKind::Stream
         } else if lookahead.peek(Token![@]) {
-            input.parse::<Token![@]>()?;
+            let at_token = input.parse::<Token![@]>()?;
 
             let lookahead = input.lookahead1();
 
@@ -88,7 +88,21 @@ impl Parse for Branch {
                 input.parse::<kw::exhausted>()?;
                 HookKind::Exhausted
             } else {
-                return Err(lookahead.error());
+                let lookahead_error = lookahead.error();
+
+                let span = if input.is_empty() {
+                    at_token.span()
+                } else {
+                    lookahead_error.span()
+                };
+
+                let error = syn::parse::Error::new(
+                    span,
+                    "Expected `@before`, `@after` or `@exhausted`.\n\
+                    There can also be `F` or `S` but without a leading `@`."
+                );
+
+                return Err(error)
             };
 
             input.parse::<Token![=>]>()?;
@@ -101,7 +115,7 @@ impl Parse for Branch {
             let lookahead_error = lookahead.error();
             let error = syn::parse::Error::new(
                 lookahead_error.span(),
-                "Expected `F`, `S`, `@before` or `@after`.\
+                "Expected `F`, `S`, `@before`, `@after` or `@exhausted`.\n\
                 `F` must prefix a Future, while `S` must prefix a Stream."
             );
 
