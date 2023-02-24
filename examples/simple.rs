@@ -1,5 +1,4 @@
-use futures::StreamExt;
-use select_loop::select_loop;
+use {futures::StreamExt, select_loop::select_loop};
 
 #[tokio::main]
 async fn main() {

@@ -2,8 +2,7 @@ pub use select_loop_proc::select_loop;
 
 #[doc(hidden)]
 pub mod __private {
-    pub use futures;
-    pub use tokio;
+    pub use {futures, tokio};
 
     pub struct AbortOnDrop(futures::future::AbortHandle);
 
